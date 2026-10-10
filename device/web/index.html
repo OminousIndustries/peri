@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>Peri</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<main id="viewport">
+  <div id="fit">
+    <div id="device" aria-live="polite">
+      <div id="scope"></div>
+      <div id="captions">
+        <p id="cap-user" class="cap"></p>
+        <p id="cap-assistant" class="cap"></p>
+      </div>
+      <div id="card"><div id="card-text"></div></div>
+      <div id="timer-label"></div>
+      <div id="toast"></div>
+      <section id="notice" hidden>
+        <h1 id="notice-title"></h1>
+        <p id="notice-body"></p>
+        <p id="notice-hint"></p>
+      </section>
+      <section id="settings" aria-label="Settings"><div class="s-scroll" id="s-scroll"></div><button id="s-close" aria-label="Close settings"><span></span></button></section>
+    </div>
+  </div>
+</main>
+<div id="diag" hidden></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

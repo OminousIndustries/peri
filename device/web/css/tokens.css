@@ -1,0 +1,52 @@
+/* ─────────────────────────────────────────────────────────────
+   PERI — design tokens  (single source of truth for web + device UI)
+   Import fonts separately:  @import url('fonts/fonts.css');
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces & neutrals — named after the object itself */
+  --porcelain: #F3F0EA;   /* product shell, light surfaces      */
+  --bone:      #E7E2D8;   /* secondary light surface            */
+  --fog:       #C8C4BA;   /* hairlines on light                 */
+  --ash:       #8B8880;   /* secondary text on light            */
+  --graphite:  #2A2B30;   /* bezel, raised dark surfaces        */
+  --carbon:    #141519;   /* site dark surface                  */
+  --ink:       #0A0B0E;   /* glass black, text on light         */
+
+  /* Signal colours */
+  --ember:      #FF6A2B;  /* signature accent: pilot light, voice, CTA */
+  --ember-glow: #FFA25C;  /* glow mid-tone                             */
+  --ember-core: #FFE3C2;  /* hottest highlight                         */
+  --peri:       #7B86FF;  /* "listening" — the periwinkle in Peri      */
+  --peri-deep:  #3F49D9;  /* peri on light backgrounds                 */
+  --peri-mist:  #DDE0FF;  /* peri tint                                 */
+  --rose:       #FF4D6D;  /* errors only                               */
+
+  /* Dark-mode text ramp (on ink/carbon) */
+  --text-hi:  rgba(243, 240, 234, 0.94);
+  --text-mid: rgba(243, 240, 234, 0.62);
+  --text-lo:  rgba(243, 240, 234, 0.38);
+  --line-dark: rgba(243, 240, 234, 0.12);
+  /* Light-mode text ramp (on porcelain) */
+  --text-hi-l:  rgba(10, 11, 14, 0.94);
+  --text-mid-l: rgba(10, 11, 14, 0.62);
+  --text-lo-l:  rgba(10, 11, 14, 0.40);
+  --line-light: rgba(10, 11, 14, 0.12);
+
+  /* Signature gradient — "dusk to dawn" (listening → speaking) */
+  --grad-duotone: linear-gradient(100deg, var(--peri) 0%, #C77BD8 42%, var(--ember) 100%);
+  --grad-glow-ember: radial-gradient(closest-side, var(--ember-core), var(--ember-glow) 35%, var(--ember) 62%, transparent 100%);
+
+  /* Typography */
+  --font-display: 'Unbounded', 'Instrument Sans', system-ui, sans-serif;  /* wide, friendly, retro-future */
+  --font-text:    'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-accent:  'Instrument Serif', Georgia, serif;                       /* italic only, for one word per headline */
+  --font-mono:    'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace; /* labels, telemetry */
+
+  /* Motion */
+  --ease-out:   cubic-bezier(.2, .7, .1, 1);     /* default: soft landing */
+  --ease-inout: cubic-bezier(.65, 0, .35, 1);    /* head-turn feel        */
+  --dur-1: 180ms; --dur-2: 420ms; --dur-3: 800ms; --dur-4: 1400ms;
+
+  /* Shape */
+  --r-sm: 10px; --r-md: 18px; --r-lg: 32px; --r-pill: 999px;
+}

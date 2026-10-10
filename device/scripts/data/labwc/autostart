@@ -1,0 +1,9 @@
+#!/bin/sh
+# labwc autostart for the Peri kiosk (only used with PERI_KIOSK=labwc). Managed by the Peri installer.
+# The browser itself is started by launch-kiosk.sh (labwc -S / -s), not from here.
+# When PERI_KIOSK_OUTPUT is set (e.g. DSI-1) every other output is switched off so the UI cannot end up on HDMI.
+if [ -n "${PERI_KIOSK_OUTPUT:-}" ] && command -v wlr-randr >/dev/null 2>&1; then
+    for out in $(wlr-randr | awk '/^[^ ]/ {print $1}'); do
+        [ "$out" = "$PERI_KIOSK_OUTPUT" ] || wlr-randr --output "$out" --off
+    done
+fi

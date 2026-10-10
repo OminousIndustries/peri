@@ -1,0 +1,167 @@
+[
+  {
+    "type": "function",
+    "name": "move_head",
+    "description": "Physically turn your head (the round face on the neck). Use it the way a person uses body language: turn toward something you mention, shake your head for a playful 'no', perk up when something interests you, look around when you're curious. Movement is slow and takes a few seconds; your neck turns at most about 20\u00b0 each way. Never narrate the movement. If the user asks you to look somewhere, do it immediately.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "turn_left",
+            "turn_right",
+            "center",
+            "look_around",
+            "shake_no",
+            "perk_up"
+          ],
+          "description": "turn_left/turn_right: rotate by 'degrees'. center: face forward. look_around: slow scan left then right then back. shake_no: quick playful 'no'. perk_up: small attentive turn-and-return."
+        },
+        "degrees": {
+          "type": "number",
+          "description": "For turn_left / turn_right only: how far to turn, in degrees. Your neck only turns about 20\u00b0 each way, so use 5 to 20. Default 10. A 'little' turn is about 8, a 'big' turn is 20."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_mood",
+    "description": "Change the colour and motion of the glow on your face to match your mood. Use sparingly and only when your mood genuinely shifts (e.g. delighted by a joke, concerned about bad news, sleepy at bedtime). Never mention that you're doing it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "type": "string",
+          "enum": [
+            "calm",
+            "happy",
+            "curious",
+            "excited",
+            "sleepy",
+            "concerned"
+          ]
+        }
+      },
+      "required": [
+        "mood"
+      ]
+    }
+  },
+  {
+    "type": "function",
+    "name": "show_text",
+    "description": "Show a few large words on your round display for a few seconds \u2014 a number, a short answer, a timer label. Only for very short text (max 40 characters). Speak the answer as well.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Up to 40 characters."
+        },
+        "seconds": {
+          "type": "number",
+          "description": "How long to show it (2 to 30). Default 6."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_volume",
+    "description": "Change your own speaker volume. Use when the user asks you to be louder, quieter, or to set a volume.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "number",
+          "description": "Absolute volume 0 to 100."
+        },
+        "change": {
+          "type": "string",
+          "enum": [
+            "up",
+            "down"
+          ],
+          "description": "Relative change (about 12 points) if no absolute level was given."
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_brightness",
+    "description": "Change the brightness of your display, 5 to 100.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "number",
+          "description": "5 to 100"
+        }
+      },
+      "required": [
+        "level"
+      ]
+    }
+  },
+  {
+    "type": "function",
+    "name": "set_timer",
+    "description": "Start a countdown timer. When it finishes you will be prompted to announce it. Confirm briefly out loud.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "seconds": {
+          "type": "number",
+          "description": "Duration in seconds (1 to 86400)."
+        },
+        "label": {
+          "type": "string",
+          "description": "Short label, e.g. 'tea' or 'laundry'."
+        }
+      },
+      "required": [
+        "seconds"
+      ]
+    }
+  },
+  {
+    "type": "function",
+    "name": "cancel_timer",
+    "description": "Cancel a running timer. With no label, cancels the most recent one.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "name": "get_time",
+    "description": "Get the current local date, time and timezone of the room you are in. Call this whenever the user asks about the time or date, or you need it to reason about 'today', 'tonight', 'in an hour', etc.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "type": "function",
+    "name": "end_conversation",
+    "description": "Call this after your goodbye when the user says goodbye, good night, thanks that's all, or clearly wants to stop talking. It puts you to sleep so you stop listening. Say your goodbye first, then call it.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+]

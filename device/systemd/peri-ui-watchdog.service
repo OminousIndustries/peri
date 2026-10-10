@@ -1,0 +1,17 @@
+# One pass of the UI watchdog (see scripts/ui-watchdog.sh); triggered every 30 s by peri-ui-watchdog.timer.
+# TEMPLATE - rendered into /etc/systemd/system/ by scripts/setup-services.sh (placeholders: see scripts/setup-services.sh).
+# Restarts peri-kiosk when the server is healthy but no UI websocket is connected for 3 consecutive passes
+# (max 3 restarts per hour). Disable with PERI_UI_WATCHDOG=0 in /etc/peri/peri.env.
+[Unit]
+Description=Peri UI watchdog (restarts the kiosk browser when it lost the server)
+After=peri-server.service
+
+[Service]
+Type=oneshot
+ExecStart=@PERI_INSTALL@/scripts/ui-watchdog.sh
+TimeoutStartSec=45
+SyslogIdentifier=peri-ui-watchdog
+Nice=10
+# The script only talks to 127.0.0.1 and to systemctl; it needs to be root for `systemctl restart`.
+PrivateTmp=yes
+ProtectSystem=full

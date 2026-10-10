@@ -1,0 +1,22 @@
+{
+  "AudioCaptureAllowed": true,
+  "AudioCaptureAllowedUrls": [@PERI_ORIGINS_JSON@],
+  "URLBlocklist": ["*"],
+  "URLAllowlist": [@PERI_ORIGINS_JSON@],
+  "TranslateEnabled": false,
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "MetricsReportingEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "BookmarkBarEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "SafeBrowsingProtectionLevel": 0,
+  "HomepageLocation": "@PERI_URL@",
+  "RestoreOnStartup": 4,
+  "RestoreOnStartupURLs": ["@PERI_URL@"],
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2
+}

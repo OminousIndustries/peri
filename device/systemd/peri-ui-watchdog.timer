@@ -1,0 +1,12 @@
+# Runs peri-ui-watchdog.service every 30 s (first run 3 minutes after boot: the kiosk needs time to come up).
+# TEMPLATE - rendered into /etc/systemd/system/ by scripts/setup-services.sh.
+[Unit]
+Description=Run the Peri UI watchdog every 30 seconds
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

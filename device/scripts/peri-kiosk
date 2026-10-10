@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+# peri-kiosk - control the Peri kiosk (the Chromium UI on the built-in display).
+# Installed by the installer as /usr/local/bin/peri-kiosk (source: scripts/peri-kiosk). Standalone: needs only systemd + bash.
+#
+# Usage: peri-kiosk COMMAND [ARGS]
+#
+#   start          start the kiosk now
+#   stop           stop the kiosk (the panel goes idle; SSH keeps working)
+#   restart        restart compositor + browser (the cure for a frozen or blank UI)
+#   status         unit state, compositor mode, browser processes, connected UIs
+#   logs [-f] [N]  the last N (default 100) journal lines of the kiosk + hardware-init units; -f follows
+#   reload         ask the running UI to reload its page (no restart)
+#   mode [M]       show the compositor mode, or set it (cage | x11 | labwc | auto); then `peri-kiosk restart`
+#   enable         start the kiosk at every boot (and switch a desktop login manager off)
+#   disable        do NOT start the kiosk at boot: bring the normal desktop / console login back (reboot to apply)
+#   desktop        switch to the desktop NOW (stops the kiosk, starts the display manager); boot setup unchanged
+#   console        stop the kiosk and give tty1 a login prompt (USB keyboard on the panel)
+#
+# Getting the desktop back:
+#   for now       sudo peri-kiosk desktop        (`sudo peri-kiosk start` brings the kiosk back)
+#   for good      sudo peri-kiosk disable && sudo reboot      (re-enables the display manager + graphical target)
+#   by keyboard   Ctrl+Alt+F2 opens a text login on tty2 while the kiosk runs
+# Environment (tests): PERI_ROOT (prefix for /etc and /var), PERI_BASE_URL (default http://127.0.0.1:$PERI_PORT).
+set -uo pipefail
+
+ROOT="${PERI_ROOT:-}"; ROOT="${ROOT%/}"
+UNIT=peri-kiosk                                   # no ".service": /etc/sudoers.d/peri-power lists exactly `systemctl restart peri-kiosk`
+ENV_FILE="$ROOT/etc/peri/peri.env"
+MANIFEST="${PERI_MANIFEST:-$ROOT/var/lib/peri-install/manifest}"
+KNOWN_DMS="lightdm gdm3 sddm lxdm slim"
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+
+say() { printf '%s\n' "$*"; }
+err() { printf 'peri-kiosk: %s\n' "$*" >&2; }
+have() { command -v "$1" >/dev/null 2>&1; }
+usage() { sed -n '2,/^set -uo/p' "$SELF" | sed -e '/^set -uo/d' -e 's/^# \{0,1\}//'; }
+
+# env_get KEY : last active KEY=value of peri.env (grep, never sourced: the file also holds the API key)
+env_get() {
+    [[ -r "$ENV_FILE" ]] || return 0
+    grep -E "^[[:space:]]*$1=" "$ENV_FILE" 2>/dev/null | tail -n 1 | sed -E "s/^[^=]*=[[:space:]]*//; s/[[:space:]]+\$//; s/^\"(.*)\"\$/\\1/; s/^'(.*)'\$/\\1/"
+}
+
+BASE_URL="${PERI_BASE_URL:-http://127.0.0.1:$(env_get PERI_PORT)}"
+[[ "$BASE_URL" == "http://127.0.0.1:" ]] && BASE_URL="http://127.0.0.1:8420"
+
+# ensure_root ARGS... : re-run this script under sudo when not root
+ensure_root() {
+    [[ "$(id -u)" -eq 0 ]] && return 0
+    if have sudo; then exec sudo -- "$SELF" "$@"; fi
+    err "this command needs root (sudo is not installed)"; exit 1
+}
+
+# sc ARGS... : systemctl, through sudo when not root (the peri user may `sudo systemctl restart peri-kiosk` without a password)
+sc() {
+    if [[ "$(id -u)" -eq 0 ]]; then systemctl "$@"
+    elif have sudo; then sudo systemctl "$@"
+    else err "this needs root"; return 1; fi
+}
+
+http() {   # http METHOD URL [BODY]
+    if have curl; then
+        if [[ "$1" == POST ]]; then
+            local body="${3:-}"; [[ -n "$body" ]] || body='{}'
+            curl -fsS -m 5 -X POST -H 'Content-Type: application/json' -d "$body" "$2"
+        else curl -fsS -m 5 "$2"; fi
+    elif have python3; then
+        python3 - "$1" "$2" "${3:-}" <<'PY'
+import sys, urllib.request
+method, url, body = sys.argv[1], sys.argv[2], sys.argv[3]
+req = urllib.request.Request(url, data=(body or "{}").encode() if method == "POST" else None, method=method,
+                             headers={"Content-Type": "application/json"})
+sys.stdout.write(urllib.request.urlopen(req, timeout=5).read().decode())
+PY
+    else err "neither curl nor python3 is available"; return 1; fi
+}
+
+mode_installed() {
+    case "$1" in
+        cage) have cage ;;
+        x11) have xinit && { have Xorg || [[ -x /usr/lib/xorg/Xorg ]]; } ;;
+        labwc) have labwc ;;
+        *) return 1 ;;
+    esac
+}
+
+resolved_mode() {
+    local want m; want=$(env_get PERI_KIOSK)
+    for m in "$want" cage x11 labwc; do
+        [[ -n "$m" && "$m" != auto ]] || continue
+        if mode_installed "$m"; then printf '%s' "$m"; return 0; fi
+    done
+    return 1
+}
+
+# ---- display manager bookkeeping (the installer records what it switched off in its manifest)
+manifest_values() { [[ -f "$MANIFEST" ]] && awk -F'\t' -v k="$1" '$1 == k {print $2}' "$MANIFEST"; return 0; }
+manifest_add() { grep -qxF "$(printf '%s\t%s' "$1" "$2")" "$MANIFEST" 2>/dev/null || { mkdir -p "$(dirname "$MANIFEST")" && printf '%s\t%s\n' "$1" "$2" >> "$MANIFEST"; }; }
+is_dm() { local d; for d in $KNOWN_DMS; do [[ "$1" == "$d" || "$1" == "$d.service" ]] && return 0; done; return 1; }
+unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
+
+# dm_pick : the display manager to bring back: the one the installer switched off, else the first installed one
+dm_pick() {
+    local u d
+    while IFS= read -r u; do [[ -n "$u" ]] && is_dm "$u" && { printf '%s' "${u%.service}"; return 0; }; done < <(manifest_values svc-was-enabled)
+    for d in $KNOWN_DMS; do unit_exists "$d.service" && { printf '%s' "$d"; return 0; }; done
+    return 1
+}
+
+# ---- commands
+cmd_status() {
+    local active enabled since want res clients procs json
+    active=$(systemctl is-active "$UNIT" 2>/dev/null || true); enabled=$(systemctl is-enabled "$UNIT" 2>/dev/null || true)
+    since=$(systemctl show "$UNIT" -p ActiveEnterTimestamp --value 2>/dev/null || true)
+    want=$(env_get PERI_KIOSK); res=$(resolved_mode || true)
+    say "kiosk unit : $UNIT is ${active:-unknown}${since:+ since $since} (${enabled:-unknown} at boot)"
+    say "mode       : ${want:-auto (not set in peri.env)} -> running with ${res:-none installed}"
+    if have pgrep; then
+        procs=$(pgrep -a -u "$(id -u peri 2>/dev/null || echo 0)" -f 'chromium|cage|labwc|Xorg|xinit' 2>/dev/null | cut -c1-110 | head -n 6 || true)
+        if [[ -n "$procs" ]]; then say "processes  :"; printf '  %s\n' "$procs"; else say "processes  : none found for user peri"; fi
+    fi
+    if json=$(http GET "$BASE_URL/api/system/status" 2>/dev/null) && [[ -n "$json" ]] && have python3; then
+        clients=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("ui",{}).get("clients","?"))' "$json" 2>/dev/null || echo "?")
+        say "UI clients : $clients connected to the server at $BASE_URL"
+    else
+        say "UI clients : the server at $BASE_URL does not answer"
+    fi
+    [[ "$active" == active ]] || return 3
+}
+
+cmd_logs() {
+    local follow=0 n=100 a
+    for a in "$@"; do case "$a" in -f|--follow) follow=1 ;; ''|*[!0-9]*) err "logs: unexpected argument '$a'"; exit 2 ;; *) n=$a ;; esac; done
+    local args=(-u "$UNIT" -u peri-hwinit -n "$n")
+    if [[ $follow -eq 1 ]]; then args+=(-f); else args+=(--no-pager); fi
+    if [[ "$(id -u)" -ne 0 ]] && have sudo; then exec sudo journalctl "${args[@]}"; fi
+    exec journalctl "${args[@]}"
+}
+
+cmd_mode() {
+    local m="${1:-}" tmp
+    if [[ -z "$m" ]]; then
+        say "PERI_KIOSK=$(env_get PERI_KIOSK) (empty = auto)"
+        for c in cage x11 labwc; do say "  $c: $(mode_installed "$c" && echo installed || echo 'not installed')"; done
+        say "running with: $(resolved_mode || echo none)"
+        return 0
+    fi
+    case "$m" in cage|x11|labwc|auto) ;; *) err "mode: '$m' is not one of cage, x11, labwc, auto"; return 2 ;; esac
+    ensure_root mode "$m"
+    [[ -f "$ENV_FILE" ]] || { err "$ENV_FILE does not exist (run the installer first)"; return 1; }
+    if [[ "$m" != auto ]] && ! mode_installed "$m"; then
+        err "warning: '$m' is not installed; install its packages first, e.g.  sudo /opt/peri/install.sh --only kiosk --kiosk $m"
+    fi
+    tmp=$(mktemp) || return 1
+    # replace the active line; else switch the first commented template line (#PERI_KIOSK=...) on; else append
+    awk -v k=PERI_KIOSK -v v="$m" '
+        { lines[NR] = $0; line = $0; sub(/^[ \t]+/, "", line)
+          if (!act && substr(line, 1, length(k) + 1) == k "=") act = NR
+          if (!tpl && substr(line, 1, 1) == "#") { t = line; sub(/^#[ \t]*/, "", t); if (substr(t, 1, length(k) + 1) == k "=") tpl = NR } }
+        END {
+            pick = act ? act : tpl
+            for (i = 1; i <= NR; i++) {
+                line = lines[i]; sub(/^[ \t]+/, "", line)
+                if (i == pick) print k "=" v
+                else if (act && substr(line, 1, length(k) + 1) == k "=") continue       # duplicate active lines are dropped
+                else print lines[i]
+            }
+            if (!pick) print k "=" v
+        }' "$ENV_FILE" > "$tmp"
+    cat "$tmp" > "$ENV_FILE"                     # write THROUGH the file: owner root:peri and mode 0640 stay
+    rm -f "$tmp"
+    say "PERI_KIOSK=$m written to /etc/peri/peri.env - apply with:  peri-kiosk restart"
+}
+
+cmd_enable() {
+    local d state target
+    ensure_root enable
+    unit_exists "$UNIT.service" || { err "the $UNIT unit is not installed (run the installer: sudo ./install.sh --only services,kiosk)"; return 1; }
+    systemctl enable "$UNIT"
+    for d in $KNOWN_DMS; do
+        state=$(systemctl is-enabled "$d.service" 2>/dev/null || true)
+        if [[ "$state" == enabled ]]; then manifest_add svc-was-enabled "$d"; systemctl disable "$d.service"; say "disabled the display manager $d"; fi
+    done
+    target=$(systemctl get-default 2>/dev/null || true)
+    if [[ "$target" == graphical.target ]]; then
+        [[ -z "$(manifest_values default-target)" ]] && manifest_add default-target graphical.target
+        systemctl set-default multi-user.target
+    fi
+    say "kiosk enabled at boot. Reboot to start it, or run:  sudo peri-kiosk start"
+}
+
+cmd_disable() {
+    local dm target
+    ensure_root disable
+    systemctl disable --now "$UNIT" 2>/dev/null || true
+    if dm=$(dm_pick); then
+        systemctl enable "$dm.service" && say "display manager $dm enabled again"
+    else
+        say "no display manager is installed (Lite image): the text console login on tty1 is what comes back"
+    fi
+    target=$(manifest_values default-target | head -n 1)
+    if [[ -n "$dm" || -n "$target" ]]; then systemctl set-default "${target:-graphical.target}"; fi
+    say "kiosk disabled at boot. Reboot to get the normal desktop / console:  sudo reboot"
+}
+
+cmd_desktop() {
+    local dm
+    ensure_root desktop
+    if ! dm=$(dm_pick); then err "no display manager (lightdm, gdm3, sddm ...) is installed: this is a Lite image; use  sudo peri-kiosk console  for a text login"; return 1; fi
+    systemctl stop "$UNIT"
+    systemctl start "$dm.service" && say "the desktop ($dm) is starting on the panel; 'sudo peri-kiosk start' brings the kiosk back, 'sudo peri-kiosk disable' makes the desktop permanent"
+}
+
+cmd_console() {
+    ensure_root console
+    systemctl stop "$UNIT"
+    systemctl start getty@tty1.service && say "tty1 now shows a login prompt (needs a USB keyboard); 'sudo peri-kiosk start' brings the kiosk back"
+}
+
+main() {
+    local cmd="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "$cmd" in
+        start)   sc start "$UNIT" && say "kiosk started" ;;
+        stop)    ensure_root stop; systemctl stop "$UNIT" && say "kiosk stopped (the panel is idle; 'sudo peri-kiosk start' or 'sudo peri-kiosk desktop')" ;;
+        restart) sc restart "$UNIT" && say "kiosk restarted" ;;
+        status)  cmd_status ;;
+        logs)    cmd_logs "$@" ;;
+        reload)  http POST "$BASE_URL/api/ui/command" '{"cmd":"reload"}' >/dev/null && say "reload sent to the UI" ;;
+        mode)    cmd_mode "$@" ;;
+        enable)  cmd_enable ;;
+        disable) cmd_disable ;;
+        desktop) cmd_desktop ;;
+        console) cmd_console ;;
+        ""|-h|--help|help) usage; [[ -n "$cmd" ]] || exit 2 ;;
+        *) err "unknown command '$cmd'"; usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"

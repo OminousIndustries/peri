@@ -1,0 +1,41 @@
+# Peri kiosk - TEMPLATE, rendered by scripts/setup-services.sh (@PERI_*@ placeholders) into /etc/systemd/system/.
+# Runs the UI (Chromium kiosk) as user peri on tty1 through scripts/launch-kiosk.sh, which starts the compositor named by
+# PERI_KIOSK in /etc/peri/peri.env (cage | x11 | labwc). It takes over tty1 from getty; if the browser or the compositor dies
+# systemd restarts everything after 3 s, forever. Maintenance: `sudo peri-kiosk stop|start|restart|status|logs|desktop`.
+[Unit]
+Description=Peri kiosk (Chromium UI on the built-in display)
+Documentation=file:@PERI_INSTALL@/docs/
+After=systemd-user-sessions.service systemd-logind.service plymouth-quit-wait.service user@@PERI_UID@.service peri-hwinit.service peri-server.service getty@tty1.service
+Wants=peri-server.service peri-hwinit.service user@@PERI_UID@.service
+Conflicts=getty@tty1.service
+ConditionPathExists=/dev/tty0
+# never give up: Restart=always plus the UI watchdog are the only recovery an unattended device has
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@PERI_USER@
+# a real login session on tty1: logind then hands the display and input devices to the compositor
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_RUNTIME_DIR=/run/user/@PERI_UID@ HOME=@PERI_HOME@ PERI_STATE_DIR=@PERI_STATE@
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+# PERI_KIOSK, PERI_URL, PERI_KIOSK_OUTPUT, PERI_CHROMIUM_DEBUG_PORT ... (the file also holds the API key: the launcher and the
+# unit strip it again, the browser never needs it)
+EnvironmentFile=-/etc/peri/peri.env
+UnsetEnvironment=OPENAI_API_KEY PERI_ADMIN_TOKEN
+ExecStart=@PERI_INSTALL@/scripts/launch-kiosk.sh
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+# Peri: let the "video" group (the peri user) change the panel brightness.
+# Installed by scripts/setup-display.sh as /etc/udev/rules.d/90-peri-backlight.rules.
+# Both ways (this rule and scripts/hw-init.sh at boot) are idempotent. The old out-of-tree Waveshare driver exposes
+# /sys/waveshare/rpi_backlight/brightness, which is not a "backlight" class device: hw-init.sh covers that one.
+ACTION=="add|change", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"

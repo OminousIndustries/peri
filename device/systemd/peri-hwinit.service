@@ -1,0 +1,22 @@
+# Peri hardware init - TEMPLATE, rendered by scripts/setup-services.sh (@PERI_*@ placeholders) into /etc/systemd/system/.
+# Runs scripts/hw-init.sh as root once per boot: backlight permissions for group video, WM8960 mixer levels (waits up to 30 s
+# for the card), default PipeWire/Pulse devices for user peri. It never fails the boot (the script always exits 0).
+[Unit]
+Description=Peri hardware init (backlight permissions, audio mixer levels, default audio devices)
+Documentation=file:@PERI_INSTALL@/scripts/hw-init.sh
+# after the sound card exists and after the vendor drivers restored THEIR mixer state (seeed-voicecard / wm8960-soundcard /
+# alsa-restore), so our levels win; before the server and the kiosk want the hardware
+After=sound.target systemd-modules-load.service local-fs.target seeed-voicecard.service wm8960-soundcard.service alsa-restore.service alsa-state.service
+Before=peri-server.service peri-kiosk.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PERI_USER=@PERI_USER@ PERI_STATE_DIR=@PERI_STATE@
+ExecStart=@PERI_INSTALL@/scripts/hw-init.sh
+TimeoutStartSec=90
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

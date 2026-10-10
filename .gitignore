@@ -1,0 +1,15 @@
+# Local credentials and generated files.
+device/config/peri.env
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+.venv*/
+__pycache__/
+*.py[cod]
+.state-dev/
+*.log
+*.peri-bak
+.DS_Store
+._*

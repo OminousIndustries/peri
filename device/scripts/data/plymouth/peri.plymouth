@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Peri
+Description=Peri boot splash: the logo centred on a near-black background
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/peri
+ScriptFile=/usr/share/plymouth/themes/peri/peri.script

@@ -1,0 +1,35 @@
+{
+  "persona": "peri",
+  "custom_instructions": "",
+  "voice": "marin",
+  "speed": 1.0,
+  "model": "gpt-realtime-2.1",
+  "reasoning_effort": "low",
+  "transcription_model": "gpt-4o-mini-transcribe",
+  "language": "auto",
+  "captions": "assistant",
+  "wake_mode": "tap",
+  "idle_sleep_s": 90,
+  "barge_in": "voice",
+  "vad": {
+    "type": "semantic_vad",
+    "eagerness": "auto",
+    "threshold": 0.6
+  },
+  "noise_reduction": "far_field",
+  "head": {
+    "enabled": true,
+    "intensity": 0.7,
+    "limit_deg": 20,
+    "idle_motion": true,
+    "move_while_listening": false
+  },
+  "display": {
+    "rotation": 0,
+    "brightness": 80
+  },
+  "audio": {
+    "volume": 70
+  },
+  "sounds": true
+}

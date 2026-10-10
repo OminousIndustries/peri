@@ -1,0 +1,40 @@
+# Peri device server: serves the kiosk UI, proxies OpenAI Realtime, drives the neck.
+# TEMPLATE - scripts/setup-services.sh renders it into /etc/systemd/system/ (placeholders: see scripts/setup-services.sh).
+# Do not edit the installed copy by hand; change the template and re-run:  sudo ./install.sh --yes --only services
+[Unit]
+Description=Peri device server (UI, OpenAI Realtime proxy, head control)
+Documentation=file://@PERI_INSTALL@/docs/API.md
+After=network.target sound.target user@@PERI_UID@.service peri-hwinit.service
+Wants=user@@PERI_UID@.service
+# Never give up restarting (the default limit is 5 starts in 10 s).
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@PERI_USER@
+Group=@PERI_USER@
+# Only groups that exist on this OS are listed (systemd fails the unit with status 216/GROUP for an unknown one).
+SupplementaryGroups=@PERI_GROUPS@
+EnvironmentFile=/etc/peri/peri.env
+Environment=XDG_RUNTIME_DIR=/run/user/@PERI_UID@ PERI_STATE_DIR=@PERI_STATE@ PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=@PERI_INSTALL@/server
+ExecStart=/usr/bin/python3 -m peri_server
+SyslogIdentifier=peri-server
+Restart=always
+RestartSec=2
+# On stop the server re-centres the neck (needs a few seconds).
+TimeoutStopSec=15
+
+# Modest hardening. Deliberately NOT set (the server needs them): NoNewPrivileges (it calls `sudo systemctl reboot|poweroff|
+# restart ...`, see /etc/sudoers.d/peri-power), PrivateDevices (serial port, GPIO, ALSA), ProtectKernelTunables (backlight
+# brightness lives in /sys), ProtectHome (pointless: the home of the service user is /var/lib/peri), CapabilityBoundingSet.
+PrivateTmp=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictRealtime=yes
+# (systemd enforces RestrictNamespaces only on x86/mips/ppc64/s390; on ARM it is accepted and does nothing)
+RestrictNamespaces=yes
+
+[Install]
+WantedBy=multi-user.target

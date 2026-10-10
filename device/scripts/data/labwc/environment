@@ -1,0 +1,2 @@
+# Environment of the labwc compositor itself (KEY=value per line). Managed by the Peri installer.
+WLR_LIBINPUT_NO_DEVICES=1

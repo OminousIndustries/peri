@@ -1,0 +1,472 @@
+#!/usr/bin/env bash
+# peri-config - look at and change the Peri device configuration, restart services, read logs, calibrate the neck.
+# Installed as /usr/local/bin/peri-config by the installer (scripts/install-app.sh). Run `peri-config --help`.
+set -Eeuo pipefail
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+ORIG_ARGS=("$@")
+ENV_FILE="${PERI_ENV_FILE:-/etc/peri/peri.env}"
+SECRET_KEYS=(OPENAI_API_KEY PERI_ADMIN_TOKEN)
+PAUSE="${PERI_CONFIG_PAUSE:-3}"                    # seconds to wait for a head move to finish (tests set 0)
+POLL="${PERI_CONFIG_POLL:-2}"                      # seconds between key-check polls (tests set 0)
+
+usage() {
+    cat <<'EOF'
+peri-config - manage the Peri device configuration
+
+USAGE
+  peri-config list [--all]                 all KEY=VALUE from /etc/peri/peri.env; secrets are masked
+                                           (--all also lists the commented defaults that are not set)
+  peri-config get KEY [--show-secret]      print one value (secrets are masked unless --show-secret); exit 1 when unset
+  peri-config set KEY VALUE [--no-restart] set KEY (also: set KEY=VALUE). Replaces the active line, else activates the
+                                           commented template line, else appends. Comments, order, file mode and owner are
+                                           kept. Afterwards peri-server is restarted so it takes effect.
+                                           VALUE "-" reads the value from stdin (use it for secrets: keeps them out of ps and
+                                           shell history):   echo 'sk-...' | sudo peri-config set OPENAI_API_KEY -
+  peri-config unset KEY [--no-restart]     remove KEY (secrets are blanked to KEY= instead)
+  peri-config restart [server|kiosk|all]   restart services (default: server)
+  peri-config logs [-f] [server|kiosk|all] last 200 journal lines (-f follows); default: server
+  peri-config status                       service states + a summary of GET /api/system/status
+  peri-config key-check                    is an OpenAI key configured and does OpenAI answer? (exit 0 ok, 1 no key,
+                                           2 key rejected/unreachable, 3 server not reachable)
+  peri-config head status                  head driver state (GET /api/head)
+  peri-config head test                    move +5, -5, then 0 degrees and tell you how to fix the direction
+  peri-config head zero                    declare the current neck position as 0 degrees (centre it by hand first!)
+  peri-config head nudge DEG               turn the neck by DEG degrees (-5..5) to trim the centre position
+
+FILES AND ENVIRONMENT
+  /etc/peri/peri.env    settings (root:peri 0640). PERI_ENV_FILE=path uses another file (tests); then no sudo/restart magic.
+  Commands that need root re-run themselves through sudo.
+
+COMMON SETTINGS  (documented in the env file itself; `peri-config list --all`)
+  OPENAI_API_KEY  PERI_HEAD_DRIVER (auto|serial|gpio|sim|none)  PERI_HEAD_INVERT (0|1)  PERI_HEAD_SERIAL_PORT
+  PERI_UI_WATCHDOG (0|1)  PERI_MIXER_* (audio levels)  PERI_LOG_LEVEL (debug|info|warning)
+EOF
+}
+
+die() { printf 'peri-config: %s\n' "$*" >&2; exit "${DIE_CODE:-1}"; }
+
+# ------------------------------------------------------------------------------------------ privileges
+
+# can_create_in DIR : DIR (or, when it does not exist yet, its nearest existing ancestor) is writable for us.
+can_create_in() { local d="$1"; while [[ ! -d "$d" && "$d" != / ]]; do d=$(dirname "$d"); done; [[ -w "$d" ]]; }
+
+# need MODE : make sure we may do MODE (read|write the env file, or root for systemd/journal); re-exec through sudo when we may not.
+need() {
+    case "$1" in
+        read)  [[ -r "$ENV_FILE" ]] && return 0 ;;
+        write) if [[ -e "$ENV_FILE" ]]; then [[ -w "$ENV_FILE" && -w "$(dirname "$ENV_FILE")" ]] && return 0
+               else can_create_in "$(dirname "$ENV_FILE")" && return 0; fi ;;
+        root)  [[ "$(id -u)" -eq 0 ]] && return 0 ;;
+    esac
+    if [[ -n "${PERI_ENV_FILE:-}" && "$1" != root ]]; then die "cannot $1 $ENV_FILE: permission denied (running as $(id -un))"; fi
+    [[ -z "${PERI_CONFIG_NO_SUDO:-}" ]] || die "root privileges are required for this command"
+    command -v sudo >/dev/null 2>&1 || die "root privileges are required and sudo is not installed"
+    exec sudo -- "$SELF" "${ORIG_ARGS[@]}"
+}
+
+# ------------------------------------------------------------------------------------------ env file
+
+is_secret() { local k; for k in "${SECRET_KEYS[@]}"; do [[ "$k" == "$1" ]] && return 0; done; return 1; }
+
+mask() {   # VALUE -> first 3 + ... + last 4 characters (short values are not revealed at all)
+    local v="$1" n=${#1}
+    if [[ $n -eq 0 ]]; then printf '(unset)'
+    elif [[ $n -ge 12 ]]; then printf '%s...%s' "${v:0:3}" "${v: -4}"
+    else printf '*** (%d chars)' "$n"; fi
+}
+
+unquote() {   # strip surrounding whitespace and one pair of matching quotes (what systemd does)
+    local v="$1"
+    v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"
+    case "$v" in \"*\") v=${v#\"}; v=${v%\"} ;; \'*\') v=${v#\'}; v=${v%\'} ;; esac
+    printf '%s' "$v"
+}
+
+LINES=()
+load_env() { LINES=(); if [[ -f "$ENV_FILE" ]]; then mapfile -t LINES < "$ENV_FILE"; fi; }
+
+matches_active()   { [[ "$1" =~ ^[[:space:]]*"$2"= ]]; }
+matches_template() { [[ "$1" =~ ^[[:space:]]*#[[:space:]]*"$2"= ]]; }
+
+# env_value KEY : effective value (the last active assignment wins, as in systemd); returns 1 when there is none.
+env_value() {
+    local line found=1 val=""
+    for line in "${LINES[@]}"; do
+        if matches_active "$line" "$1"; then val=$(unquote "${line#*=}"); found=0; fi
+    done
+    printf '%s' "$val"; return "$found"
+}
+
+valid_key()   { [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; }
+check_value() {   # KEY VALUE : reject what would corrupt the file or be misparsed by systemd's EnvironmentFile
+    local v="$2"
+    [[ "$v" != *$'\n'* && "$v" != *$'\r'* ]] || die "the value contains a line break"
+    [[ "$v" != *[\"\'\\]* ]] || die "the value contains a quote or backslash, which systemd's EnvironmentFile parses specially; use a value without them"
+    [[ "$v" == "${v#"${v%%[![:space:]]*}"}" && "$v" == "${v%"${v##*[![:space:]]}"}" ]] || die "the value has leading or trailing whitespace"
+    return 0
+}
+
+# edit_env MODE KEY [VALUE] : MODE set|unset. Builds the new content in memory, writes a temp file next to the target
+# (mode/owner copied from the original) and renames it over the original: atomic, comments and order preserved.
+edit_env() {
+    local mode="$1" key="$2" value="${3-}" i n line act=-1 tmpl=-1
+    local -a out=()
+    load_env
+    n=${#LINES[@]}
+    for ((i = 0; i < n; i++)); do
+        line="${LINES[$i]}"
+        if matches_active "$line" "$key"; then [[ $act -lt 0 ]] && act=$i
+        elif [[ $tmpl -lt 0 ]] && matches_template "$line" "$key"; then tmpl=$i; fi
+    done
+    for ((i = 0; i < n; i++)); do
+        line="${LINES[$i]}"
+        if matches_active "$line" "$key"; then
+            if [[ "$mode" == set ]]; then
+                [[ $i -eq $act ]] && out+=("$key=$value")               # first active line replaced, duplicates dropped
+            elif is_secret "$key"; then
+                [[ $i -eq $act ]] && out+=("$key=")                     # a blanked secret keeps its slot in the file
+            fi
+            continue
+        fi
+        if [[ "$mode" == set && $act -lt 0 && $i -eq $tmpl ]]; then out+=("$key=$value"); continue; fi
+        out+=("$line")
+    done
+    if [[ "$mode" == set && $act -lt 0 && $tmpl -lt 0 ]]; then out+=("$key=$value"); fi
+
+    local dir tmp; dir=$(dirname "$ENV_FILE")
+    [[ -d "$dir" ]] || { mkdir -p "$dir" 2>/dev/null || die "cannot create $dir"; }
+    tmp=$(umask 077; mktemp "$dir/.peri.env.XXXXXX") || die "cannot write in $dir"
+    # shellcheck disable=SC2064  # expand $tmp now: the trap must remove this very file
+    trap "rm -f '$tmp'" EXIT
+    if [[ ${#out[@]} -gt 0 ]]; then printf '%s\n' "${out[@]}" > "$tmp"; else : > "$tmp"; fi
+    if [[ -e "$ENV_FILE" ]]; then
+        chmod --reference="$ENV_FILE" "$tmp"
+        chown --reference="$ENV_FILE" "$tmp" 2>/dev/null || true
+    else
+        chmod 0640 "$tmp"
+        getent group peri >/dev/null 2>&1 && chgrp peri "$tmp" 2>/dev/null || true
+    fi
+    mv -f "$tmp" "$ENV_FILE"
+    trap - EXIT
+}
+
+# ---------------------------------------------------------------------------------------------- commands
+
+cmd_list() {
+    local all=0 line key val seen="" k
+    [[ "${1:-}" == --all ]] && all=1
+    need read
+    load_env
+    [[ ${#LINES[@]} -gt 0 ]] || { echo "(no settings: $ENV_FILE is missing or empty)"; return 0; }
+    local -a keys=(); declare -A vals=()
+    for line in "${LINES[@]}"; do
+        if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            key="${BASH_REMATCH[1]}"; val=$(unquote "${line#*=}")
+            [[ -n "${vals[$key]+x}" ]] || keys+=("$key")
+            vals[$key]="$val"
+        fi
+    done
+    for key in "${keys[@]}"; do
+        if is_secret "$key"; then printf '%s=%s\n' "$key" "$(mask "${vals[$key]}")"; else printf '%s=%s\n' "$key" "${vals[$key]}"; fi
+    done
+    if [[ $all -eq 1 ]]; then
+        echo
+        echo "# Not set (defaults shown; enable with: peri-config set NAME VALUE):"
+        for line in "${LINES[@]}"; do
+            if [[ "$line" =~ ^[[:space:]]*#[[:space:]]*([A-Z][A-Z0-9_]*)=(.*)$ ]]; then
+                k="${BASH_REMATCH[1]}"
+                [[ -z "${vals[$k]+x}" && " $seen " != *" $k "* ]] || continue
+                seen+=" $k"; printf '#%s=%s\n' "$k" "${BASH_REMATCH[2]}"
+            fi
+        done
+    fi
+}
+
+cmd_get() {
+    local key="" show=0 a val
+    for a in "$@"; do case "$a" in --show-secret) show=1 ;; -*) die "unknown option $a" ;; *) key="$a" ;; esac; done
+    [[ -n "$key" ]] || die "usage: peri-config get KEY [--show-secret]"
+    valid_key "$key" || die "invalid key name: $key"
+    need read
+    load_env
+    if ! val=$(env_value "$key"); then echo "peri-config: $key is not set" >&2; return 1; fi
+    if is_secret "$key" && [[ $show -eq 0 ]]; then
+        mask "$val"; echo
+        [[ -n "$val" ]] || return 1
+    else
+        printf '%s\n' "$val"
+    fi
+}
+
+restart_units() {   # UNIT...
+    need root
+    command -v systemctl >/dev/null 2>&1 || die "systemctl not found"
+    systemctl restart "$@"
+}
+
+# restart_server_after_change : only when the real service exists here (never on a test machine with PERI_ENV_FILE).
+restart_server_after_change() {
+    [[ -z "${PERI_ENV_FILE:-}" ]] || { echo "custom env file ($ENV_FILE): not restarting anything"; return 0; }
+    if ! command -v systemctl >/dev/null 2>&1 || ! systemctl cat peri-server.service >/dev/null 2>&1; then
+        echo "peri-server.service is not installed here: nothing to restart"; return 0
+    fi
+    echo "restarting peri-server so the change takes effect ..."
+    systemctl restart peri-server.service || echo "peri-config: restart failed: journalctl -u peri-server -n 30" >&2
+}
+
+cmd_set() {
+    local key="" value="" have_value=0 restart=1 a
+    for a in "$@"; do
+        case "$a" in
+            --no-restart) restart=0 ;;
+            --) ;;
+            *) if [[ -z "$key" ]]; then
+                   if [[ "$a" == *=* ]]; then key="${a%%=*}"; value="${a#*=}"; have_value=1; else key="$a"; fi
+               elif [[ $have_value -eq 0 ]]; then value="$a"; have_value=1
+               else die "too many arguments (quote values that contain spaces)"; fi ;;
+        esac
+    done
+    [[ -n "$key" && $have_value -eq 1 ]] || die "usage: peri-config set KEY VALUE [--no-restart]   (VALUE - reads stdin)"
+    valid_key "$key" || die "invalid key name '$key' (letters, digits and underscore, not starting with a digit)"
+    if [[ "$value" == - ]]; then
+        if [[ -t 0 ]]; then IFS= read -rs -p "$key: " value || true; echo >&2
+        else IFS= read -r value || true; fi
+        value=${value%$'\r'}
+        [[ -n "$value" ]] || die "no value received on stdin"
+    fi
+    check_value "$key" "$value"
+    need write
+    edit_env set "$key" "$value"
+    if is_secret "$key"; then echo "$key set ($(mask "$value"))"; else echo "$key=$value"; fi
+    [[ $restart -eq 1 ]] && restart_server_after_change
+    return 0
+}
+
+cmd_unset() {
+    local key="" restart=1 a
+    for a in "$@"; do case "$a" in --no-restart) restart=0 ;; -*) die "unknown option $a" ;; *) key="$a" ;; esac; done
+    [[ -n "$key" ]] || die "usage: peri-config unset KEY [--no-restart]"
+    valid_key "$key" || die "invalid key name: $key"
+    need write
+    load_env
+    if ! env_value "$key" >/dev/null; then echo "$key is not set: nothing to do"; return 0; fi
+    edit_env unset "$key"
+    if is_secret "$key"; then echo "$key blanked"; else echo "$key removed"; fi
+    [[ $restart -eq 1 ]] && restart_server_after_change
+    return 0
+}
+
+cmd_restart() {
+    local target="${1:-server}"
+    case "$target" in
+        server) restart_units peri-server.service ;;
+        kiosk)  restart_units peri-kiosk.service ;;
+        all)    restart_units peri-server.service peri-kiosk.service ;;
+        *) die "usage: peri-config restart [server|kiosk|all]" ;;
+    esac
+    echo "restarted: $target"
+}
+
+cmd_logs() {
+    local follow=0 target=server a
+    for a in "$@"; do case "$a" in -f|--follow) follow=1 ;; server|kiosk|all) target="$a" ;; *) die "usage: peri-config logs [-f] [server|kiosk|all]" ;; esac; done
+    need root
+    command -v journalctl >/dev/null 2>&1 || die "journalctl not found"
+    local -a units=()
+    case "$target" in
+        server) units=(-u peri-server) ;;
+        kiosk)  units=(-u peri-kiosk) ;;
+        all)    units=(-u peri-hwinit -u peri-server -u peri-kiosk -u peri-ui-watchdog) ;;
+    esac
+    if [[ $follow -eq 1 ]]; then exec journalctl "${units[@]}" -n 200 -f; fi
+    journalctl "${units[@]}" -n 200 --no-pager
+}
+
+# ------------------------------------------------------------------------------------------- HTTP part
+
+base_url() {
+    local port=""
+    if [[ -r "$ENV_FILE" ]]; then load_env; port=$(env_value PERI_PORT || true); fi
+    [[ "$port" =~ ^[0-9]+$ ]] || port=8420
+    printf 'http://127.0.0.1:%s' "$port"
+}
+
+# api METHOD PATH [JSON] : response body on stdout; message on stderr and status 3 when the server cannot be reached, 2 on HTTP errors.
+api() {
+    python3 - "$1" "$(base_url)$2" "${3:-}" <<'PY'
+import sys, urllib.request, urllib.error
+method, url, body = sys.argv[1], sys.argv[2], sys.argv[3]
+data = body.encode() if body else None
+headers = {"Content-Type": "application/json"} if data is not None else {}
+req = urllib.request.Request(url, data=data, method=method, headers=headers)
+try:
+    with urllib.request.urlopen(req, timeout=8) as r:
+        sys.stdout.write(r.read().decode())
+except urllib.error.HTTPError as e:
+    sys.stderr.write("server answered HTTP %d: %s\n" % (e.code, e.read().decode(errors="replace")[:300]))
+    sys.exit(2)
+except Exception as e:
+    sys.stderr.write("cannot reach the Peri server at %s (%s). Is it running?  peri-config status ; peri-config logs\n" % (url, e))
+    sys.exit(3)
+PY
+}
+
+jget() {   # jget 'python expression on d' : evaluate against the JSON on stdin; prints "" on any error
+    python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    v = eval(sys.argv[1], {"d": d})
+    print("" if v is None else v)
+except Exception:
+    print("")
+' "$1"
+}
+
+cmd_status() {
+    local u state json
+    echo "Services:"
+    if command -v systemctl >/dev/null 2>&1; then
+        for u in peri-hwinit peri-server peri-kiosk peri-ui-watchdog.timer; do
+            state=$(systemctl is-active "$u" 2>/dev/null || true); [[ -n "$state" ]] || state=unknown
+            printf '  %-24s %s\n' "$u" "$state"
+        done
+    else
+        echo "  (systemctl not available)"
+    fi
+    echo "Server ($(base_url)):"
+    if ! json=$(api GET /api/system/status 2>/dev/null); then
+        echo "  not reachable (is peri-server running?  peri-config logs)"; return 3
+    fi
+    printf '%s' "$json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+def g(o, *ks, default="?"):
+    for k in ks:
+        if not isinstance(o, dict) or k not in o or o[k] is None:
+            return default
+        o = o[k]
+    return o
+up = g(d, "uptime_s", default=None)
+upt = "?"
+if isinstance(up, (int, float)):
+    days, rest = divmod(int(up), 86400)
+    hours, rest = divmod(rest, 3600)
+    mins, secs = divmod(rest, 60)
+    upt = "%dd %dh %dm" % (days, hours, mins) if days else "%dh %dm" % (hours, mins) if hours else "%dm %ds" % (mins, secs)
+print("  version %s, host %s, up %s, cpu %s C, load %s" % (g(d, "version"), g(d, "hostname"), upt, g(d, "cpu_temp_c"), (g(d, "load", default=["?"]) or ["?"])[0]))
+print("  net:    online=%s ip=%s ssid=%s signal=%s%%" % (g(d, "net", "online"), g(d, "net", "ip"), g(d, "net", "ssid"), g(d, "net", "signal_pct")))
+print("  audio:  backend=%s volume=%s muted=%s sink=%s source=%s" % (g(d, "audio", "backend"), g(d, "audio", "volume"), g(d, "audio", "muted"), g(d, "audio", "sink"), g(d, "audio", "source")))
+print("  openai: key configured=%s reachable=%s%s" % (g(d, "openai", "configured"), g(d, "openai", "reachable"), (" last_error=%s" % g(d, "openai", "last_error")) if g(d, "openai", "last_error", default=None) else ""))
+print("  head:   driver=%s connected=%s angle=%s zeroed=%s error=%s" % (g(d, "head", "driver"), g(d, "head", "connected"), g(d, "head", "angle"), g(d, "head", "zeroed"), g(d, "head", "error", default="none")))
+print("  ui:     %s client(s) connected" % g(d, "ui", "clients"))
+'
+}
+
+cmd_key_check() {
+    local json cfg reach err
+    if ! json=$(api GET /api/system/status); then return 3; fi
+    cfg=$(printf '%s' "$json" | jget 'd["openai"]["configured"]')
+    if [[ "$cfg" != True ]]; then
+        echo "OpenAI key: NOT configured. Set it with:  echo 'sk-...' | sudo peri-config set OPENAI_API_KEY -"
+        return 1
+    fi
+    # openai.reachable is refreshed by the server at most once a minute and is null until the first check: poll a little.
+    local i
+    for ((i = 0; i < 6; i++)); do
+        reach=$(printf '%s' "$json" | jget 'd["openai"]["reachable"]')
+        [[ "$reach" == True || "$reach" == False ]] && break
+        sleep "$POLL"; json=$(api GET /api/system/status) || return 3
+    done
+    err=$(printf '%s' "$json" | jget 'd["openai"].get("last_error")')
+    case "$reach" in
+        True)  echo "OpenAI key: configured and accepted by OpenAI (reachable)"; return 0 ;;
+        False) echo "OpenAI key: configured but OpenAI did not accept it or is unreachable${err:+ ($err)}. Check the key and the network."; return 2 ;;
+        *)     echo "OpenAI key: configured; reachability not known yet (the server has not checked). Try again in a minute."; return 2 ;;
+    esac
+}
+
+head_state_line() {
+    python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("driver=%s connected=%s angle=%s target=%s moving=%s energized=%s zeroed=%s limits=%s error=%s" % (
+    d.get("driver"), d.get("connected"), d.get("angle"), d.get("target"), d.get("moving"), d.get("energized"),
+    d.get("zeroed"), d.get("limits"), d.get("error")))
+'
+}
+
+require_head() {
+    local json conn
+    json=$(api GET /api/head) || exit $?
+    conn=$(printf '%s' "$json" | jget 'd.get("connected")')
+    if [[ "$conn" != True ]]; then
+        echo "The head is not connected: $(printf '%s' "$json" | head_state_line)" >&2
+        echo "Check the USB cable / driver: peri-config logs ; peri-config set PERI_HEAD_DRIVER serial|gpio" >&2
+        exit 4
+    fi
+}
+
+# head_move ANGLE : absolute move, then wait for it to finish (the server reports eta_ms; otherwise PERI_CONFIG_PAUSE seconds).
+head_move() {
+    local resp eta wait_s
+    resp=$(api POST /api/head/move "{\"angle\": $1, \"speed_dps\": 8}") || return $?
+    eta=$(printf '%s' "$resp" | jget 'd.get("eta_ms")')
+    if [[ "$eta" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then wait_s=$(awk -v e="$eta" 'BEGIN { printf "%.1f", e / 1000 + 0.5 }'); else wait_s="$PAUSE"; fi
+    sleep "$wait_s"
+}
+
+cmd_head() {
+    local sub="${1:-}"; [[ $# -gt 0 ]] && shift
+    case "$sub" in
+        status)
+            local json; json=$(api GET /api/head) || return $?
+            printf '%s' "$json" | head_state_line ;;
+        test)
+            require_head
+            echo "Head test. Make sure nothing blocks the neck. The neck should be centred by hand before power-up."
+            echo "  -> +5 degrees (the head turns to ITS RIGHT = clockwise seen from above)"
+            head_move 5 || return $?
+            echo "  -> -5 degrees"
+            head_move -5 || return $?
+            echo "  -> back to 0"
+            head_move 0 || return $?
+            echo
+            echo "Did the head turn to ITS RIGHT (clockwise seen from above) first? If not run: sudo peri-config set PERI_HEAD_INVERT 1"
+            ;;
+        zero)
+            require_head
+            api POST /api/head/zero '{}' >/dev/null || return $?
+            echo "The current neck position is now 0 degrees (saved in the calibration file)." ;;
+        nudge)
+            local deg="${1:-}"
+            [[ "$deg" =~ ^[+-]?[0-9]+(\.[0-9]+)?$ ]] || die "usage: peri-config head nudge DEG   (a number between -5 and 5)"
+            if ! awk -v d="$deg" 'BEGIN { exit !(d >= -5 && d <= 5) }'; then die "nudge is limited to +-5 degrees per call (the neck only has about +-20 degrees of travel)"; fi
+            require_head
+            local json; json=$(api POST /api/head/nudge "{\"delta_deg\": $deg}") || return $?
+            echo "nudged by $deg degrees: $(printf '%s' "$json" | head_state_line)" ;;
+        *) die "usage: peri-config head status|test|zero|nudge DEG" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------------------------- main
+
+main() {
+    local cmd="${1:-}"; [[ $# -gt 0 ]] && shift
+    case "$cmd" in
+        ""|-h|--help|help) usage ;;
+        list)      cmd_list "$@" ;;
+        get)       cmd_get "$@" ;;
+        set)       cmd_set "$@" ;;
+        unset)     cmd_unset "$@" ;;
+        restart)   cmd_restart "$@" ;;
+        logs)      cmd_logs "$@" ;;
+        status)    cmd_status "$@" ;;
+        key-check) cmd_key_check "$@" ;;
+        head)      cmd_head "$@" ;;
+        *) echo "peri-config: unknown command '$cmd'" >&2; usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"

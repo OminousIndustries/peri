@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- Peri kiosk configuration for labwc (only used with PERI_KIOSK=labwc; see /opt/peri/scripts/launch-kiosk.sh).
+     No window decorations and no key/mouse bindings at all (no <default /> element): the UI owns the screen. -->
+<labwc_config>
+  <core>
+    <gap>0</gap>
+  </core>
+  <windowRules>
+    <windowRule identifier="*">
+      <serverDecoration>no</serverDecoration>
+    </windowRule>
+  </windowRules>
+  <keyboard>
+  </keyboard>
+  <mouse>
+  </mouse>
+</labwc_config>
