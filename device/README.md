@@ -1,12 +1,12 @@
 # Peri software
 
-This folder contains the software installed on the Raspberry Pi and the firmware for the Arduino Nano.
+This folder contains the software installed on the Raspberry Pi. The standard build runs without an Arduino; an optional Arduino uses separate power and does not connect to the Pi.
 
 Start with **[INSTALL.md](INSTALL.md)**. For touch controls and settings, see **[Using Peri](../docs/USE.md)**.
 
 - `server/` — Python server and device controls.
 - `web/` — the round display's interface.
-- `firmware/` — Nano motor firmware.
+- `firmware/` — experimental standalone sweep and serial-controlled Nano sketches; [start here](firmware/README.md).
 - `scripts/`, `systemd/`, `assets/` — installation, startup and diagnostics.
 - `config/` — default settings and an API-key configuration example.
 

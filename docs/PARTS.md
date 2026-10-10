@@ -1,6 +1,6 @@
 # Parts list
 
-Parts for the Raspberry Pi 4B and Arduino Nano build shown in the assembly guides.
+Parts for the Raspberry Pi 4B build shown in the assembly guides. The Arduino and motor are optional and have their own power source.
 
 ## Electronics and cables
 
@@ -10,12 +10,7 @@ Parts for the Raspberry Pi 4B and Arduino Nano build shown in the assembly guide
 | 1 | Waveshare **4inch DSI LCD (C)** | Round, 720×720, capacitive touch; use its mounting screws, DSI ribbon and 4-pin power/I2C lead |
 | 1 | [Waveshare WM8960 Audio HAT](https://www.waveshare.com/product/wm8960-audio-hat.htm), SKU 15668 | 40-pin GPIO HAT, stereo microphones and speaker outputs; available separately or bundled with speakers |
 | 2 speaker enclosures total | [Waveshare 14595, 8Ω 5W speakers](https://www.waveshare.com/product/accessories/8ohm-5w-speaker.htm) | Left/right enclosures used in the owner's tested build; supplied with that HAT kit, also available separately |
-| 1 | Arduino Nano, ATmega328P/compatible | Motor controller; verify bootloader when flashing |
-| 1 | ULN2003 stepper-driver board | Match the five-wire motor connector |
-| 1 | 28BYJ-48 **5 V** stepper | Reference gear ratio and firmware use this geared motor |
-| 1 | USB cable, Nano to Pi | Data-capable; connector depends on your Nano |
-| 1 set | Nano/driver jumper wires | IN1–IN4, 5 V and ground; lengths depend on build |
-| 1 | Pi 4 compatible USB-C supply | Use right-angle USB-C adapter; verify motor power budget on physical build |
+| 1 | Pi 4 compatible USB-C supply | Powers the Pi, display and audio HAT; use the right-angle USB-C adapter |
 | 1 | Right-angle USB-C adapter | Compare orientation with PDF pages 18 and 23 |
 | 1 | microSD card | Room for a 64-bit OS and updates; 32 GB is a practical starting size |
 | 1 | Network connection | Wi-Fi or Ethernet with internet |
@@ -24,30 +19,44 @@ Compare the [display manufacturer's connections](https://www.waveshare.com/wiki/
 
 You need two speaker enclosures total. Some WM8960 HAT kits include both, so check the package contents before ordering additional speakers. The 5 W figure is the speaker rating; the HAT's specified output is 1 W per channel into 8Ω.
 
+## Optional Arduino and motor
+
+The Arduino does **not** connect to the Pi: the enclosure has no room for that USB connection. It needs independent power and a standalone sketch to control movement. An experimental [standalone sweep sketch](../device/firmware/README.md) is included. Read its wiring and testing notes before buying these optional parts; physical head movement remains unverified.
+
+| Quantity | Part | Fit/setup notes |
+|---|---|---|
+| 1 | Arduino Nano, ATmega328P/compatible | Independent motor controller |
+| 1 | ULN2003 stepper-driver board | Match the five-wire motor connector |
+| 1 | 28BYJ-48 **5 V** stepper | Geared motor for the Arduino pinion |
+| 1 | Separate power supply for the Nano and 5 V motor/driver | Check the board's power-input requirements and the motor's current draw; not powered by the Pi |
+| 1 | Nano power cable | Connector depends on the Nano and its separate supply; allow access outside the enclosure |
+| 1 set | Nano/driver jumper wires | Control signals and a shared ground within the motor assembly; match the standalone sketch |
+
 ## Printed parts
 
-See the [print quantities](../prints/README.md). The reference build uses the common parts and the Arduino variant.
+See the [print quantities](../prints/README.md). Print the common parts and either `NO_Arduino/` or `Arduino_Build/`, depending on your build.
 
-## Fasteners for the documented Arduino build
+## Fasteners
 
-These totals combine the [Arduino guide](ArduinoAssemblyGuide.pdf) for the base, motor and Nano bracket with the [main guide](AssemblyGuide.pdf) for the speaker mounts, neck, display and enclosure. They count the pictured steps; verify fit and the hardware supplied with your display.
+The first column follows the [main guide](AssemblyGuide.pdf). The optional Arduino column substitutes the [Arduino guide](ArduinoAssemblyGuide.pdf) for its base, motor and Nano bracket steps. These totals count the pictured steps; verify fit and the hardware supplied with your display.
 
-| Fastener | Count in illustrated steps | Uses |
-|---|---:|---|
-| M3×8 screws | 13 | Motor mount (4), posts (8), rear join (1) |
-| M3×10 screws | 7 | Speaker mounts (4), neck (3) |
-| M3×12 screws | 5 | Big gear/neck mount (3), rear top covers (2) |
-| M3×16 screws | 3 | Gearbox top through bottom to square posts |
-| M3×20 screw | 1 | Main neck pivot |
-| M3×25 screws | 8 | Motor (2), speaker attachments and front cover retention (6) |
-| M3 standard nuts | 35 | Speaker mounts (4), motor (2), motor mount (4), posts (8), rear join (1), gearbox top (3), big gear/neck (3), neck (3), speakers (6), pivot (1) |
-| M4×8 screws | 3 | Display to neck |
-| M2×4 screws | At least 8 | Speaker grilles (6), ULN2003 board (at least 2; up to 4 matching holes) |
-| M2×6 screws | 2 | Arduino bracket to speaker mount |
-| Pi/display mounting screws | 4 | Supplied with display; thread/length not specified in guide |
-| Printed speaker washers | 6 | `Speaker_WasherPRINT6x.stl` |
+| Fastener | Without Arduino | Optional Arduino | Uses |
+|---|---:|---:|---|
+| M3×8 screws | 1 | 13 | Free pinion axle without Arduino; motor mount, posts and rear join with Arduino |
+| M3×10 screws | 20 | 7 | Speaker mounts and neck; also base joins/posts without Arduino |
+| M3×12 screws | 5 | 5 | Big gear/neck mount (3), rear top covers (2) |
+| M3×16 screws | 3 | 3 | Gearbox top through bottom to square posts |
+| M3×20 screw | 1 | 1 | Main neck pivot |
+| M3×25 screws | 6 | 8 | Speaker attachments (6), optional motor (2) |
+| M3 standard nuts | 33 | 35 | Base, gearbox, neck, speakers and pivot |
+| M3 lock nut | 1 | 0 | Free pinion axle without Arduino |
+| M4×8 screws | 3 | 3 | Display to neck |
+| M2×4 screws | 6 | At least 8 | Speaker grilles (6), optional ULN2003 board (at least 2; up to 4 matching holes) |
+| M2×6 screws | 0 | 2 | Optional Arduino bracket to speaker mount |
+| Pi/display mounting screws | 4 | 4 | Supplied with display; thread/length not specified in guide |
+| Printed speaker washers | 6 | 6 | `Speaker_WasherPRINT6x.stl` |
 
-The Arduino pinion presses onto the motor shaft and does not use an M3 axle screw or lock nut. These quantities are for the Arduino build; the older unmotorized variant in the main PDF uses different fasteners.
+The Arduino pinion presses onto the motor shaft and does not use the separate M3 axle screw or lock nut.
 
 Avoid longer substitute screws: proud gearbox-top screws can hit the neck mount. Pivot fasteners must retain the assembly while permitting free motion.
 

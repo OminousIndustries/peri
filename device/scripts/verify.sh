@@ -278,6 +278,7 @@ check_openai() {
 check_head() {
     if [[ ${#ST[@]} -eq 0 ]]; then add SKIP head "server status not available"; return; fi
     if [[ "${ST[has_head]:-false}" != true ]]; then add WARN head "the server status has no head section"; return; fi
+    if [[ "${ST[head_driver]:-}" == none ]]; then add SKIP head "Pi motor control disabled; an optional standalone Arduino is powered and tested separately"; return; fi
     if [[ "${ST[head_connected]:-}" == true ]]; then
         add PASS head "driver ${ST[head_driver]:-?} connected, angle ${ST[head_angle]:-?} deg"
     else

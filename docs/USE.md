@@ -22,11 +22,13 @@ Hold the display to change volume, personality, voice, captions, brightness, dis
 
 If Peri hears its own speaker and interrupts itself, reduce the volume and set **Talk over Peri → Tap only**. You can still interrupt a reply by tapping.
 
-**Head movement** can be turned off. If you enable it, check the mechanism and cable clearance first. Its position is estimated; it cannot detect a stuck gear or a skipped step.
+The standard setup hides **Head movement** settings with `PERI_HEAD_DRIVER=none`. An optional Arduino is independently powered and has no connection to the Pi, so the display cannot control its movement. If head settings appear after an older installation, run `sudo peri-config set PERI_HEAD_DRIVER none` on the Pi.
 
 ## Shut down
 
 Open settings, find **Power → Shut down**, and tap again to confirm. Wait for the Pi to shut down before unplugging it. You can also run `sudo shutdown -h now` over SSH.
+
+If you fitted an Arduino, turn off its separate supply too. Shutting down the Pi does not switch it off.
 
 ## Get help
 

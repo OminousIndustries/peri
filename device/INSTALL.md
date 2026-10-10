@@ -16,7 +16,7 @@ Use Raspberry Pi Imager to write your chosen image. Configure:
 - Your timezone and keyboard layout.
 - SSH enabled.
 
-Insert the card. With the power off, center the neck and check all wiring. Connect the Nano's USB data cable to the Pi, then power on. The display may stay dark until the installer runs and the Pi reboots.
+Insert the card. With the power off, check all wiring, then power on the Pi. The optional Arduino does not connect to the Pi and needs its own power source; it is not needed for this setup. The display may stay dark until the installer runs and the Pi reboots.
 
 ## 2. Copy the software
 
@@ -35,11 +35,11 @@ Alternatively, copy the `device` folder into your Pi user's home folder with an 
 Run these commands **on the Pi**:
 
 ```bash
-sudo bash ./install.sh --dry-run --yes
-sudo bash ./install.sh --yes
+sudo bash ./install.sh --dry-run --yes --head none
+sudo bash ./install.sh --yes --head none
 ```
 
-The first command previews the changes. The second installs Peri, configures the display/audio and sets the interface to start at boot. Wait for it to finish and resolve any `FAIL` entries. If it reports **REBOOT REQUIRED**, run:
+The first command previews the changes. The second installs Peri, configures the display/audio and sets the interface to start at boot. `--head none` disables Pi motor control and hides its head settings, including when you have an independently powered Arduino. Wait for it to finish and resolve any `FAIL` entries. If it reports **REBOOT REQUIRED**, run:
 
 ```bash
 sudo reboot
@@ -62,36 +62,31 @@ sudo peri-config key-check
 
 The key is stored in `/etc/peri/peri.env`. Keep it out of GitHub, screenshots and shared logs. `key-check` contacts OpenAI to check the key.
 
-## 5. Set up the Nano
+## 5. Optional Arduino
 
-**Physical head movement remains unverified on the reference build.** The Nano must be powered, connected to the Pi by USB, and wired to the driver as shown in the [assembly instructions](../docs/ASSEMBLY.md#7-peri-motor-wiring).
+**No Arduino flashing or Pi connection is needed for the normal build.** The enclosure has no room for a USB connection between the Pi and Nano. If you fit the optional motor assembly, its Arduino needs separate power and a standalone movement sketch. See the [assembly instructions](../docs/ASSEMBLY.md#7-optional-arduino-power-and-firmware).
 
-With the neck centered and clear of cables and covers:
+For optional movement, upload the [experimental standalone sweep sketch](firmware/README.md) from your computer, following its separate guide. Do not use the Pi flashing helper: it uploads the other, serial-controlled sketch. Head movement remains physically unverified.
+
+If you used the earlier instructions, disable Pi motor control with:
 
 ```bash
-sudo /opt/peri/scripts/flash-firmware.sh
-sudo peri-config head status
-sudo peri-config head test
+sudo peri-config set PERI_HEAD_DRIVER none
 ```
-
-The test requests small +5°, −5° and center movements. Check actual movement and direction. If the first move goes toward the head's left, run `sudo peri-config set PERI_HEAD_INVERT 1` and test again. Start with a small range; keep it at or below the clearance you have measured on your build. The default range is ±20°.
-
-The neck has no position sensor. Center it with power off before first startup and after it loses position. See [Nano flashing help](firmware/README.md) if uploading fails.
 
 ## 6. Check the finished device
 
 ```bash
 sudo /opt/peri/scripts/post-reboot-verify.sh
 sudo /opt/peri/scripts/audio-test.sh
-sudo peri-config head status
 ```
 
-Check that the display appears after boot, touch works, both speakers play and the microphone hears you. Tap the face and try a conversation. Test head movement separately and confirm the cables clear the mechanism. Software checks cannot confirm those physical details.
+Check that the display appears after boot, touch works, both speakers play and the microphone hears you. Tap the face and try a conversation. Any optional Arduino movement needs its own power and testing; it is not controlled or verified by the Pi.
 
 Next: **[Using Peri](../docs/USE.md)**. If something fails, use [troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Update or remove
 
-To update, copy the new `device` folder to the Pi again, then run `cd ~/device` and `sudo bash ./install.sh --yes`. The installed API key and settings are retained.
+To update, copy the new `device` folder to the Pi again, then run `cd ~/device` and `sudo bash ./install.sh --yes --head none`. The installed API key and other settings are retained.
 
 To uninstall, run `sudo bash /opt/peri/uninstall.sh --yes`, then reboot. The uninstaller restores backed-up system files and keeps settings and credentials unless you explicitly request data removal.

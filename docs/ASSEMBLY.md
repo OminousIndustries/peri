@@ -1,12 +1,23 @@
 # Assembly and wiring
 
-Use this with the [34-page main illustrated guide](AssemblyGuide.pdf) and the [13-page Arduino assembly guide](ArduinoAssemblyGuide.pdf). The PDFs use the original name Talk Buddy for this enclosure. Peri replaces its software and standalone motor control with a Pi-connected Nano.
+Use this with the [34-page main illustrated guide](AssemblyGuide.pdf). The PDFs use the original name Talk Buddy for this enclosure; install the current [Peri software](../device/INSTALL.md) for the Pi.
 
-The Arduino guide replaces the main guide's early crossmember, post and pinion steps. Use the Arduino variant below for Peri. Its final page refers to an older Arduino Setup PDF for wiring; use section 7 here and the current [software setup](../device/INSTALL.md). Do not combine the older small-gear pivot screw with the Arduino motor-shaft pinion.
+**The Arduino is optional and does not connect to the Pi.** There is no room for a Pi-to-Nano USB connection inside this enclosure. The optional Arduino and motor assembly needs separate power; speech, audio and the display work without it.
+
+For the simplest build, use `NO_Arduino/` and the main guide throughout. For the optional motor assembly, use `Arduino_Build/` and the [13-page Arduino mounting guide](ArduinoAssemblyGuide.pdf) in place of the early crossmember, post and pinion steps. Do not combine the free pinion's pivot screw with the Arduino motor-shaft pinion. Read the [experimental standalone sweep guide](../device/firmware/README.md) first; physical head movement remains unverified.
 
 Disconnect all power before connecting or repositioning hardware. Read the [parts list](PARTS.md) and [printing guide](../prints/README.md) first.
 
-## 1. Base and supports — main page 2; Arduino pages 1–6
+## 1. Base and supports
+
+### Without Arduino — main pages 2–6
+
+1. Attach the two speaker mounts to the matching case halves using four M3×10 screws and four M3 nuts. Check their direction against page 2.
+2. Join the halves with `NO_Arduino/X_Brace_NOARD.stl`, four M3×10 screws and four M3 nuts. Leave these loose initially.
+3. Fit three square posts and one round post using eight M3×10 screws and eight M3 nuts. The round post goes at the rear center pivot.
+4. Join the rear tabs with one M3×10 screw and one M3 nut. Align both halves, then tighten the base joins.
+
+### Optional Arduino — main page 2; Arduino pages 1–6
 
 1. Attach each speaker mount to its matching base half, using four M3×10 screws and four M3 nuts total. Compare mount direction with main page 2.
 2. Mount the ULN2003 board in the position shown on Arduino page 1, using at least two M2×4 screws. Board hole patterns vary; use the matching mounting holes without bending the board.
@@ -15,7 +26,15 @@ Disconnect all power before connecting or repositioning hardware. Read the [part
 5. Fit three square posts and one round post with eight M3×8 screws and eight M3 nuts. Put the round post at the rear center pivot. Leave these loose initially.
 6. Join the rear tabs with one M3×8 screw and one M3 nut. Align the case halves, then tighten the base joins (Arduino pages 5–6).
 
-## 2. Motor, gearbox and Nano mount — Arduino pages 7–13
+## 2. Gearbox
+
+### Without Arduino — main pages 7–11
+
+1. Fit `NO_Arduino/Small_Gear_NOARD.stl` to `NO_Arduino/Gearbox_Bottom_NOARD.stl` using one M3×8 screw and an M3 lock nut in the gear's recess. Retain it securely while allowing it to rotate freely.
+2. Place this assembly over the four posts. Insert three M3 nuts into the front recesses of the square posts.
+3. Secure the gearbox top through the bottom to those nuts with three M3×16 screws. Screw heads must sit below the neck mount's path.
+
+### Optional motor and Nano mount — Arduino pages 7–13
 
 1. Seat the stepper motor in its mount. Secure it using two M3×25 screws into the two nuts placed beneath the mount in section 1 (Arduino page 7).
 2. Place `Arduino_Build/Gearbox_Bottom_Arduino.stl` over the four posts and motor. Ensure the motor shaft passes through its opening without forcing the cover (Arduino page 8).
@@ -23,7 +42,7 @@ Disconnect all power before connecting or repositioning hardware. Read the [part
 4. Align the gearbox top with the bottom. Insert three M3 nuts in the front recesses of the three square posts, then secure the top through the bottom using three M3×16 screws (Arduino pages 10–11). Screw heads must not protrude above the top where the neck mount travels.
 5. Attach `Arduino_Build/Arduino_Mount.stl` to the speaker mount pictured on Arduino page 12, using two M2×6 screws. Insert the Nano into the bracket as shown on page 13. Check access to the USB connector and jumper headers before closing the enclosure.
 
-The older `NO_Arduino` mechanism instead uses the crossbrace, main-guide M3×10 base fasteners, and a freely rotating small gear retained by an M3×8 screw and lock nut. Those early main-guide steps do not apply to the Arduino build. Its later neck, display and enclosure steps below are shared.
+The remaining neck, display and enclosure steps are shared by both versions.
 
 ## 3. Neck and big gear — main pages 12–13
 
@@ -50,7 +69,7 @@ Fit the right-angle USB-C adapter as on page 18, pointing clear of the neck.
 
 Route the speaker lead from the base through the neck-mount wiring loop and up the neck before fitting speakers. Connect it to the HAT speaker connector, supporting the board to avoid bending GPIO pins.
 
-Route Pi power from the rear rectangular opening through the loop to the USB-C adapter. Leave slack for the small neck sweep. Route the Nano's Pi USB cable clear of moving gears.
+Route Pi power from the rear rectangular opening through the loop to the USB-C adapter. Leave slack for neck movement. If fitting the optional Arduino, route its separate power lead clear of the gears and leave access to its external supply. It does not plug into the Pi.
 
 The neck uses three of the display module's four holes. Orient the Pi power port toward the corner without a neck screw hole (page 23). Start all three M4×8 screws before tightening; reach the upper screw through the rear access hole. Keep cables in the loop if removing the neck mount for access.
 
@@ -64,27 +83,18 @@ Slide the big gear between gearbox top and bottom until it meshes with the pinio
 
 Fit grilles with six M2×4 screws total. Inspect cable clearance before closing.
 
-## 7. Peri motor wiring
+## 7. Optional Arduino power and firmware
 
-Connect Nano USB **to the Pi** for serial control. Replace standalone sweep firmware with [Peri firmware](../device/firmware/README.md).
+Skip this section if building without an Arduino. Power the Nano and motor/driver independently of the Pi. Match the supply to the Nano's power-input requirements and the 5 V motor's current draw. The Nano and driver need a shared ground within that separate assembly.
 
-| ULN2003 connection | Nano |
-|---|---|
-| IN1 | D8 |
-| IN2 | D9 |
-| IN3 | D10 |
-| IN4 | D11 |
-| VCC / + | 5 V |
-| GND / − | GND |
-| Keyed motor socket | 28BYJ-48 five-wire plug |
+The Arduino mounting PDF's final page refers to a separate Arduino Setup PDF. For this build, follow the [experimental sweep sketch's wiring and upload instructions](../device/firmware/README.md). Upload from your computer before final assembly, then disconnect the computer and use the separate power supply. The sweep starts automatically after a three-second pause.
 
-Verify motor voltage and USB power budget on your build. The Nano USB connection carries the control commands. Keep motor signals off the HAT's I2S pins.
+Use `peri_sweep.ino` for standalone motion. The separate `peri_head.ino` sketch requires serial commands, and the Pi flashing helper uploads that serial version. The Pi cannot control this separately powered, unconnected Arduino, including through Peri's head settings.
 
 ## 8. First boot checks
 
-- Verify DSI seating, header alignment, speaker polarity and driver wiring with power off.
-- Center the neck by hand; there is no position sensor.
+- Verify DSI seating, header alignment and speaker wiring with power off.
 - Check cable slack and cover clearance with a small manual sweep. Do not force gears or assume the sector gear's full arc is available.
-- Keep hands clear during the first motor test. Test ±5° first, then confirm printed clearance. Default software sweep is ±20°.
+- For the optional motor, verify wiring against its standalone sketch and center the neck with power off. There is no position sensor. Check its movement limits and cable clearance before powering it; keep hands clear during testing. Motor movement remains unverified on the reference device.
 
-Continue with [software setup](../device/INSTALL.md). Check touch, audio, neck direction and reboot physically before declaring the build complete.
+Continue with [software setup](../device/INSTALL.md). Check touch, audio and reboot on the Pi. Any optional motor test is separate from the Pi setup.

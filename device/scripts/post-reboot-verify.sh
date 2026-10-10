@@ -116,7 +116,8 @@ Physical checks only a human can do:
   [ ] touch works: tap the screen - the UI reacts where you touch
   [ ] sound out: the test tone from verify.sh was audible from the speakers (sudo /opt/peri/scripts/audio-test.sh plays it again)
   [ ] sound in: speak or clap - the level in audio-test.sh moves, and the UI hears you
-  [ ] the neck moves the right way (positive angle = the head turns to ITS right): keep fingers clear, then  peri-config head test
-      (wrong direction: sudo peri-config set PERI_HEAD_INVERT 1); centre the neck by hand before power-up, then  peri-config head zero
+
+Optional Arduino: powered and tested separately. The standard enclosure has no
+Pi-to-Arduino connection; these Pi checks cannot verify its movement.
 EOF
 exit "$rc"

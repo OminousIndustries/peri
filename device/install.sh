@@ -74,7 +74,7 @@ COMMON RUNS
   ./install.sh --dry-run                                   preview: what would change, with diffs (nothing is changed)
   sudo ./install.sh --yes --only app,services              UPDATE the software from a fresh copy of this folder
   sudo ./install.sh --yes --only kiosk                     re-run a single step (also: sudo scripts/setup-kiosk.sh)
-  sudo ./install.sh --yes --head sim                       no neck/Arduino connected (yet): the server simulates the head
+  sudo ./install.sh --yes --head none                      standard enclosure: no Pi-connected motor
   sudo ./uninstall.sh --yes                                undo everything (settings and API key are kept; see --help there)
 
 WHAT HAPPENS
